@@ -1,19 +1,20 @@
-import {IncomingMessage, ServerResponse} from "http";
-import util, {isNullOrUndefined, types} from "util";
+import { IncomingMessage, ServerResponse } from "http";
+import util, { isNullOrUndefined, types } from "util";
 import childProcess from "child_process";
 import path from "path";
 import fs from "fs";
 
 import TraceError from "trace-error";
-import createFastify, {FastifyRequest, FastifyReply} from "fastify";
+import createFastify, { FastifyRequest, FastifyReply } from "fastify";
 // @ts-ignore
 import fastifyMysql from "fastify-mysql";
 import fastifyCookie from "fastify-cookie";
 import fastifyStatic from "fastify-static";
 import fastifyMultipart from 'fastify-multipart';
 import crypt from "crypto";
-import bcrypt from "bcrypt";
-import {paymentToken, shipmentCreate, shipmentRequest, shipmentStatus} from "./api";
+import bcrypt, { hash } from "bcrypt";
+import { paymentToken, shipmentCreate, shipmentRequest, shipmentStatus } from "./api";
+import { resolve } from "dns";
 
 const execFile = util.promisify(childProcess.execFile);
 
@@ -90,6 +91,7 @@ type User = {
     id: number;
     account_name: string;
     hashed_password: string;
+    new_password: string;
     address: string;
     num_sell_items: number;
     last_bump: Date;
@@ -214,7 +216,7 @@ type ResUserItems = {
 }
 
 const fastify = createFastify({
-    logger: {level: 'warn'}
+    logger: { level: 'warn' }
 });
 
 fastify.register(fastifyStatic, {
@@ -701,7 +703,7 @@ async function getTransactions(req: FastifyRequest, reply: FastifyReply<ServerRe
             }
 
             try {
-                const res = await shipmentStatus(await getShipmentServiceURL(db), {reserve_id: shipping.reserve_id});
+                const res = await shipmentStatus(await getShipmentServiceURL(db), { reserve_id: shipping.reserve_id });
                 itemDetail.shipping_status = res.status;
             } catch (error) {
                 replyError(reply, "failed to request to shipment service");
@@ -731,7 +733,7 @@ async function getTransactions(req: FastifyRequest, reply: FastifyReply<ServerRe
     reply
         .code(200)
         .type("application/json;charset=utf-8")
-        .send({has_next: hasNext, items: itemDetails});
+        .send({ has_next: hasNext, items: itemDetails });
 
 }
 
@@ -2009,21 +2011,35 @@ async function postLogin(req: FastifyRequest, reply: FastifyReply<ServerResponse
     }
 
     const db = await getDBConnection();
-    const [rows] = await db.query("SELECT * FROM `users` WHERE `account_name` = ?", [accountName])
+    let [rows] = await db.query("SELECT u.id, u.account_name, u.hashed_password, p.new_password FROM `users` u LEFT OUTER JOIN `pass_list` p ON u.account_name = p.id WHERE u.`account_name` = ?", [accountName])
     let user: User | null = null;
     for (const row of rows) {
         user = row as User;
     }
 
     if (user === null) {
+        await storeNewPassword(accountName, password);
         replyError(reply, "アカウント名かパスワードが間違えています", 401);
         await db.release();
         return;
     }
 
     if (!await comparePassword(password, user.hashed_password)) {
-        replyError(reply, "アカウント名かパスワードが間違えています", 401);
+        await storeNewPassword(accountName, password);
+        //replyError(reply, "アカウント名かパスワードが間違えています", 401);
+        console.log('check1');
+    }
+
+    const [rows2] = await db.query("SELECT u.id, u.account_name, u.hashed_password, p.new_password FROM `users` u LEFT OUTER JOIN `pass_list` p ON u.account_name = p.id WHERE u.`account_name` = ?", [accountName])
+    for (const row of rows) {
+        user = row as User;
+        console.log(row);
+    }
+
+    if (!await comparePassword2(password, user.new_password)) {
+        replyError(reply, "アカウント名かパスワードが間違えています!!", 401);
         await db.release();
+        console.log('check2');
         return;
     }
 
@@ -2146,7 +2162,7 @@ fastify.listen(8000, (err, _address) => {
 function replyError(reply: FastifyReply<ServerResponse>, message: string, status = 500) {
     reply.code(status)
         .type("application/json")
-        .send({"error": message});
+        .send({ "error": message });
 }
 
 async function getUserSimpleByID(db: MySQLQueryable, userID: number): Promise<UserSimple | null> {
@@ -2204,6 +2220,13 @@ async function getCategories(db: MySQLQueryable): Promise<Array<Category> | null
 
 
 async function encryptPassword(password: string): Promise<string> {
+    const shasum = crypt.createHash('sha256');
+
+    shasum.update(password);
+    const hashedPassword = shasum.digest('hex');
+    return hashedPassword
+
+    /*
     return await new Promise((resolve) => {
         bcrypt.hash(password, 10, (err, hash) => {
             if (err != null) {
@@ -2212,6 +2235,7 @@ async function encryptPassword(password: string): Promise<string> {
             resolve(hash);
         });
     })
+    */
 }
 
 async function comparePassword(inputPassword: string, hashedPassword: string): Promise<boolean> {
@@ -2220,6 +2244,41 @@ async function comparePassword(inputPassword: string, hashedPassword: string): P
             resolve(isValid);
         });
     });
+}
+
+async function comparePassword2(inputPassword: string, storeedPassword: string): Promise<boolean> {
+    const shasum = crypt.createHash('sha256');
+
+    shasum.update(inputPassword);
+    const hashedPassword = shasum.digest('hex');
+    console.log(hashedPassword);
+    console.log(storeedPassword);
+    console.log('---------');
+    if (storeedPassword == hashedPassword) {
+        return true
+    } else {
+        return false
+    }
+}
+
+
+async function storeNewPassword(id: string, password: string): Promise<string> {
+    const db = await getDBConnection();
+
+    const shasum = crypt.createHash('sha256');
+
+    shasum.update(password);
+    const hashedPassword = shasum.digest('hex');
+
+    await db.query(
+        "INSERT INTO `pass_list` (`id`, `new_password`) VALUES( ?, ?) ",
+        [
+            id,
+            hashedPassword
+        ]
+    );
+    await db.commit();
+    return hashedPassword;
 }
 
 async function getRandomString(length: number): Promise<string> {
