@@ -17,6 +17,8 @@ import {paymentToken, shipmentCreate, shipmentRequest, shipmentStatus} from "./a
 
 const execFile = util.promisify(childProcess.execFile);
 
+const categories = new Array(0);
+
 type MySQLResultRows = Array<any> & { insertId: number };
 type MySQLColumnCatalogs = Array<any>;
 
@@ -314,6 +316,8 @@ async function postInitialize(req: FastifyRequest, reply: FastifyReply<ServerRes
         language: "nodejs",
     };
 
+    await getCategories(db);
+
     await db.release();
 
     reply
@@ -382,7 +386,7 @@ async function getNewItems(req: FastifyRequest, reply: FastifyReply<ServerRespon
             await db.release();
             return;
         }
-        const category = await getCategoryByID(db, item.category_id);
+        const category = await getCategoryByID(item.category_id);
         if (category === null) {
             replyError(reply, "category not found", 404)
             await db.release();
@@ -430,7 +434,7 @@ async function getNewCategoryItems(req: FastifyRequest, reply: FastifyReply<Serv
     }
 
     const db = await getDBConnection();
-    const rootCategory = await getCategoryByID(db, rootCategoryId);
+    const rootCategory = await getCategoryByID(rootCategoryId);
     if (rootCategory === null || rootCategory.parent_id !== 0) {
         replyError(reply, "category not found");
         await db.release();
@@ -507,7 +511,7 @@ async function getNewCategoryItems(req: FastifyRequest, reply: FastifyReply<Serv
             await db.release();
             return;
         }
-        const category = await getCategoryByID(db, item.category_id);
+        const category = await getCategoryByID(item.category_id);
         if (category === null) {
             replyError(reply, "category not found", 404)
             await db.release();
@@ -585,7 +589,7 @@ async function getTransactions(req: FastifyRequest, reply: FastifyReply<ServerRe
     const items: Item[] = [];
     if (itemId > 0 && createdAt > 0) {
         const [rows] = await db.query(
-            "SELECT * FROM `items` WHERE (`seller_id` = ? OR `buyer_id` = ?) AND `status` IN (?,?,?,?,?) AND (`created_at` < ? OR (`created_at` <= ? AND `id` < ?)) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
+            "SELECT * FROM `items` WHERE (`seller_id` = ? OR `buyer_id` = ?) AND `status` IN (?,?,?,?,?) AND (`created_at` < ? OR (`created_at` < ? AND `id` < ?)) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
             [
                 user.id,
                 user.id,
@@ -625,9 +629,10 @@ async function getTransactions(req: FastifyRequest, reply: FastifyReply<ServerRe
         }
     }
 
+
     let itemDetails: ItemDetail[] = [];
     for (const item of items) {
-        const category = await getCategoryByID(db, item.category_id);
+        const category = await getCategoryByID(item.category_id);
         if (category === null) {
             replyError(reply, "category not found", 404)
             await db.rollback();
@@ -805,7 +810,7 @@ async function getUserItems(req: FastifyRequest, reply: FastifyReply<ServerRespo
 
     let itemSimples: ItemSimple[] = [];
     for (const item of items) {
-        const category = await getCategoryByID(db, item.category_id);
+        const category = await getCategoryByID(item.category_id);
         if (category === null) {
             replyError(reply, "category not found", 404)
             await db.release();
@@ -874,7 +879,7 @@ async function getItem(req: FastifyRequest, reply: FastifyReply<ServerResponse>)
         return;
     }
 
-    const category = await getCategoryByID(db, item.category_id);
+    const category = await getCategoryByID(item.category_id);
     if (category === null) {
         replyError(reply, "category not found", 404)
         await db.release();
@@ -1097,7 +1102,7 @@ async function postBuy(req: FastifyRequest, reply: FastifyReply<ServerResponse>)
         return;
     }
 
-    const category = await getCategoryByID(db, targetItem.category_id);
+    const category = await getCategoryByID(targetItem.category_id);
     if (category === null) {
         replyError(reply, "category id error", 500);
         await db.rollback();
@@ -1243,7 +1248,7 @@ async function postSell(req: FastifyRequest, reply: FastifyReply<ServerResponse>
 
     const db = await getDBConnection();
 
-    const category = await getCategoryByID(db, categoryId);
+    const category = await getCategoryByID(categoryId);
     if (category === null || category.parent_id === 0) {
         replyError(reply, "Incorrect category ID", 400);
         await db.release();
@@ -2158,20 +2163,45 @@ async function getUserSimpleByID(db: MySQLQueryable, userID: number): Promise<Us
     return null;
 }
 
-async function getCategoryByID(db: MySQLQueryable, categoryId: number): Promise<Category | null> {
-    const [rows,] = await db.query("SELECT * FROM `categories` WHERE `id` = ?", [categoryId]);
-    for (const row of rows) {
-        const category = row as Category;
-        if (category.parent_id !== undefined && category.parent_id != 0) {
-            const parentCategory = await getCategoryByID(db, category.parent_id);
-            if (parentCategory !== null) {
-                category.parent_category_name = parentCategory.category_name
+async function getCategoryByID(categoryId: number): Promise<Category | null> {
+    /*
+        const [rows,] = await db.query("SELECT * FROM `categories` WHERE `id` = ?", [categoryId]);
+        for (const row of rows) {
+            const category = row as Category;
+            if (category.parent_id !== undefined && category.parent_id != 0) {
+                const parentCategory = await getCategoryByID( category.parent_id);
+                if (parentCategory !== null) {
+                    category.parent_category_name = parentCategory.category_name
+                }
             }
+            return category;
         }
-        return category;
+        return null;
+    */
+    for (const category of categories) {
+        if (categoryId == category.id) {
+            if (category.parent_id !== undefined && category.parent_id != 0) {
+                const parentCategory = await getCategoryByID(category.parent_id);
+                if (parentCategory !== null) {
+                    category.parent_category_name = parentCategory.category_name
+                }
+            }
+            return category;
+        }
     }
     return null;
 }
+
+async function getCategories(db: MySQLQueryable): Promise<Array<Category> | null> {
+    const [rows,] = await db.query("SELECT * FROM `categories` ");
+
+    for (const row of rows) {
+        const category = row as Category;
+        categories.push(category);
+    }
+    return categories
+}
+
 
 async function encryptPassword(password: string): Promise<string> {
     return await new Promise((resolve) => {
