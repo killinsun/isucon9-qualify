@@ -309,7 +309,7 @@ async function postInitialize(req: FastifyRequest, reply: FastifyReply<ServerRes
 
     const res = {
         // キャンペーン実施時には還元率の設定を返す。詳しくはマニュアルを参照のこと。
-        campaign: 0,
+        campaign: 1,
         // 実装言語を返す
         language: "nodejs",
     };
