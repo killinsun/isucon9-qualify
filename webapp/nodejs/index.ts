@@ -1,11 +1,11 @@
-import {IncomingMessage, ServerResponse} from "http";
-import util, {isNullOrUndefined, types} from "util";
+import { IncomingMessage, ServerResponse } from "http";
+import util, { isNullOrUndefined, types } from "util";
 import childProcess from "child_process";
 import path from "path";
 import fs from "fs";
 
 import TraceError from "trace-error";
-import createFastify, {FastifyRequest, FastifyReply} from "fastify";
+import createFastify, { FastifyRequest, FastifyReply } from "fastify";
 // @ts-ignore
 import fastifyMysql from "fastify-mysql";
 import fastifyCookie from "fastify-cookie";
@@ -13,7 +13,7 @@ import fastifyStatic from "fastify-static";
 import fastifyMultipart from 'fastify-multipart';
 import crypt from "crypto";
 import bcrypt from "bcrypt";
-import {paymentToken, shipmentCreate, shipmentRequest, shipmentStatus} from "./api";
+import { paymentToken, shipmentCreate, shipmentRequest, shipmentStatus } from "./api";
 
 const execFile = util.promisify(childProcess.execFile);
 
@@ -212,7 +212,7 @@ type ResUserItems = {
 }
 
 const fastify = createFastify({
-    logger: {level: 'warn'}
+    logger: { level: 'warn' }
 });
 
 fastify.register(fastifyStatic, {
@@ -309,7 +309,7 @@ async function postInitialize(req: FastifyRequest, reply: FastifyReply<ServerRes
 
     const res = {
         // キャンペーン実施時には還元率の設定を返す。詳しくはマニュアルを参照のこと。
-        campaign: 1,
+        campaign: 2,
         // 実装言語を返す
         language: "nodejs",
     };
@@ -696,7 +696,7 @@ async function getTransactions(req: FastifyRequest, reply: FastifyReply<ServerRe
             }
 
             try {
-                const res = await shipmentStatus(await getShipmentServiceURL(db), {reserve_id: shipping.reserve_id});
+                const res = await shipmentStatus(await getShipmentServiceURL(db), { reserve_id: shipping.reserve_id });
                 itemDetail.shipping_status = res.status;
             } catch (error) {
                 replyError(reply, "failed to request to shipment service");
@@ -726,7 +726,7 @@ async function getTransactions(req: FastifyRequest, reply: FastifyReply<ServerRe
     reply
         .code(200)
         .type("application/json;charset=utf-8")
-        .send({has_next: hasNext, items: itemDetails});
+        .send({ has_next: hasNext, items: itemDetails });
 
 }
 
@@ -2141,7 +2141,7 @@ fastify.listen(8000, (err, _address) => {
 function replyError(reply: FastifyReply<ServerResponse>, message: string, status = 500) {
     reply.code(status)
         .type("application/json")
-        .send({"error": message});
+        .send({ "error": message });
 }
 
 async function getUserSimpleByID(db: MySQLQueryable, userID: number): Promise<UserSimple | null> {
